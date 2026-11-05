@@ -141,8 +141,8 @@ class ManualScreenControls(private val service: ScreenBodyService) {
         val width = service.resources.displayMetrics.widthPixels
         val height = service.resources.displayMetrics.heightPixels
         val x = width * 0.75f
-        val y1 = height * if (down) 0.72f else 0.32f
-        val y2 = height * if (down) 0.32f else 0.72f
+        val y1 = height * (if (down) 0.72f else 0.32f)
+        val y2 = height * (if (down) 0.32f else 0.72f)
         val path = Path().apply { moveTo(x, y1); lineTo(x, y2) }
         service.dispatchGesture(
             GestureDescription.Builder()
@@ -248,3 +248,28 @@ code=code.replace(needle,'''        val lower = text.lowercase(Locale.ROOT)
         when {''',1)
 activity.write_text(code,encoding="utf-8")
 print("Added user-driven Accessibility overlay and explicit tap/type/scroll/back/home")
+
+# Policy-constrained mode: original AI engine cannot read/act through
+# ScreenController. Only per-button manual controls may use Accessibility.
+# This mode is NOT a proof of Google Play approval.
+gate_path = root/"screen/ScreenAccessGate.kt"
+gate = gate_path.read_text(encoding="utf-8")
+old = "fun allowed(service: AccessibilityService): Boolean = try {\n        requireAllowed(service)"
+assert old in gate
+gate=gate.replace(old, "fun allowed(service: AccessibilityService): Boolean = try {\n        requireAllowedManual(service)",1)
+old="    fun requireAllowed(service: AccessibilityService) {"
+assert old in gate
+gate=gate.replace(old, """    // Automated AI paths are disabled for a narrow, user-directed build.
+    fun requireAllowed(service: AccessibilityService) {
+        throw SecurityException("AI screen actions disabled in manual-only mode")
+    }
+
+    fun requireAllowedManual(service: AccessibilityService) {""",1)
+gate_path.write_text(gate,encoding="utf-8")
+svc=service.read_text(encoding="utf-8")
+old="        BodyCoreService.get()?.noteAccessibilityEvent(event)"
+assert old in svc
+svc=svc.replace(old, "        // Manual-only mode: do not forward screen event contents to the AI engine.",1)
+service.write_text(svc,encoding="utf-8")
+assert "fun requireAllowedManual" in gate_path.read_text()
+print("Original AI Accessibility screen reads/actions blocked; manual button mode retained")

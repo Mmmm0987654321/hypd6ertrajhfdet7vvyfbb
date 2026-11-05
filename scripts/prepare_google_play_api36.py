@@ -17,3 +17,23 @@ c=gradlew.read_text(encoding="utf-8")
 assert "gradle-8.4-bin.zip" in c
 gradlew.write_text(c.replace("gradle-8.4-bin.zip","gradle-8.13-bin.zip"),encoding="utf-8")
 print("Android SDK API 36 + AGP 8.13.0 + Gradle 8.13 target baseline")
+
+# Prefer official Maven repositories over flaky Aliyun 502 proxies.
+settings=root/"settings.gradle"
+t=settings.read_text(encoding="utf-8")
+old="""    repositories {
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }"""
+assert old in t
+t=t.replace(old,"""    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }""",1)
+old="""    repositories {
+        maven { url 'https://maven.aliyun.com/repository/google' }"""
+assert old in t
+t=t.replace(old,"""    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://maven.aliyun.com/repository/google' }""",1)
+settings.write_text(t,encoding="utf-8")
+print("Official Google/Maven Central mirrors prioritized")

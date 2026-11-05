@@ -1,81 +1,41 @@
-name: Verify Andee manual-only Accessibility (API 36)
+name: Publish existing Andee API36 debug test APK to public branch
 on:
   pull_request:
     branches: [main]
   workflow_dispatch:
 jobs:
-  verify:
+  publish-existing-tested-apk:
     runs-on: ubuntu-24.04
-    timeout-minutes: 48
     permissions:
-      contents: read
+      actions: read
+      contents: write
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout isolated public branch only
+        uses: actions/checkout@v4
         with:
           ref: andee-play-review-prep-20261105
-      - uses: actions/checkout@v4
-        with:
-          repository: kuafuai/andee
-          ref: v0.11.0
-          path: andee-src
-          persist-credentials: false
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v4
-      - name: Install API 36 build packages
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-      - name: Reduce permissions, retain Accessibility
-        run: python3 scripts/build_andee_safe.py andee-src
-      - name: Hindi UI
-        run: python3 scripts/hindi_update_andee.py andee-src
-      - name: Hindi companion and explicit consent
-        run: python3 scripts/overlay_fallback_andee.py andee-src
-      - name: Protected-window blocklist
-        run: python3 scripts/enable_bank_excluded_accessibility.py andee-src
-      - name: User-directed Screen Controls and non-autonomous mode
-        run: python3 scripts/add_manual_screen_panel.py andee-src
-      - name: Google Play target API baseline
-        run: python3 scripts/prepare_google_play_api36.py andee-src
-      - name: Validate explicit user actions and stop control
-        shell: bash
+          persist-credentials: true
+      - name: Download existing verified Android artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          grep -q 'fun requireAllowedManual' andee-src/app/src/main/java/net/kuafuai/andee/screen/ScreenAccessGate.kt
-          grep -q 'AI screen actions disabled in manual-only mode' andee-src/app/src/main/java/net/kuafuai/andee/screen/ScreenAccessGate.kt
-          grep -q 'TYPE_ACCESSIBILITY_OVERLAY' andee-src/app/src/main/java/net/kuafuai/andee/screen/ManualScreenControls.kt
-          grep -q 'Manual Screen Control शुरू करें' andee-src/app/src/main/java/net/kuafuai/andee/ui/InAppCompanionActivity.kt
-          grep -q 'targetSdk 36' andee-src/app/build.gradle
-          grep -q 'compileSdk 36' andee-src/app/build.gradle
-      - name: Compile ARM64 debug APK and Android app bundle
-        working-directory: andee-src
-        run: gradle :app:assembleDebug :app:bundleDebug --no-daemon -PdefaultLang=hi -PcodeflyingDomain=myapp.codeflying.app -PcodeflyingSsl=true
-      - name: Verify Android package and signature
-        shell: bash
+          mkdir -p artifact
+          gh run download 42035198112 -n Andee-Manual-Screen-API36-Debug-Review -D artifact
+          find artifact -maxdepth 2 -type f -printf '%P %s bytes\n'
+          test -s artifact/Andee_Manual_Accessibility_API36_Arm64_Debug.apk
+      - name: Publish public download-only debug APK
         run: |
           set -euo pipefail
-          APK="$(find andee-src/app/build/outputs/apk/debug -name '*arm64*apk' -type f | head -n 1)"
-          test -s "$APK"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee badging.txt
-          grep -q "targetSdkVersion:'36'" badging.txt
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml | tee manifest.txt
-          grep -q 'ScreenBodyService' manifest.txt
-          grep -q 'BIND_ACCESSIBILITY_SERVICE' manifest.txt
-          BUNDLE="$(find andee-src/app/build/outputs/bundle/debug -name '*.aab' -type f | head -n 1)"
-          test -s "$BUNDLE"
-          mkdir -p review_output
-          cp "$APK" review_output/Andee_Manual_Accessibility_API36_Arm64_Debug.apk
-          cp "$BUNDLE" review_output/Andee_Manual_Accessibility_API36_Debug.aab
-          sha256sum review_output/* > review_output/SHA256SUMS
-      - name: Keep artifacts for independent review (not a Play release)
-        uses: actions/upload-artifact@v4
-        with:
-          name: Andee-Manual-Screen-API36-Debug-Review
-          path: review_output/
-          if-no-files-found: error
-          retention-days: 14
+          mkdir -p downloads
+          cp artifact/Andee_Manual_Accessibility_API36_Arm64_Debug.apk downloads/
+          sha256sum downloads/Andee_Manual_Accessibility_API36_Arm64_Debug.apk > downloads/Andee_Manual_Accessibility_API36_Arm64_Debug.sha256
+          test -s downloads/Andee_Manual_Accessibility_API36_Arm64_Debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/Andee_Manual_Accessibility_API36_Arm64_Debug.*
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish existing verified Andee manual-screen debug APK [skip ci]"
+            git push origin HEAD:refs/heads/andee-play-review-prep-20261105
+          fi

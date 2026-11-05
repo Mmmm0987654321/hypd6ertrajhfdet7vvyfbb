@@ -125,7 +125,7 @@ class InAppCompanionActivity : Activity() {
             }
             val dialog = AlertDialog.Builder(this)
                 .setTitle("Andee • Screen control permission")
-                .setMessage("Andee के Accessibility access से स्क्रीन पर दिखने वाला टेक्स्ट, बटन और app activity पढ़ी जा सकती है। इसे user द्वारा बोले/लिखे स्पष्ट commands के लिए इस्तेमाल करें। संवेदनशील जानकारी, password, OTP और वित्तीय स्क्रीन पर यह सेवा बंद रखें। Android Settings में अंतिम अनुमति केवल आप दे सकते हैं।")
+                .setMessage("Andee के Accessibility access से स्क्रीन पर दिखने वाला टेक्स्ट, बटन और app activity पढ़ी जा सकती है। AI backend configure होने पर आपके निर्देश पूरे करने के लिए स्क्रीन की जानकारी उस backend/provider तक जा सकती है। बैंकिंग/भुगतान apps को रोकने के प्रयास किए गए हैं, पर पूर्ण सुरक्षा नहीं है। संवेदनशील जानकारी, password, OTP और वित्तीय स्क्रीन पर Accessibility बंद रखें। Android Settings में अंतिम अनुमति केवल आप दे सकते हैं।")
                 .setView(check)
                 .setPositiveButton("सहमत हूँ • Settings खोलें", null)
                 .setNegativeButton("रद्द करें", null)
@@ -142,6 +142,21 @@ class InAppCompanionActivity : Activity() {
                 }
             }
             dialog.show()
+        }
+        button(p, "🛑  Accessibility और screen control बंद करें") {
+            // Always permit the user to revoke app-level consent immediately,
+            // even when Android temporarily hides the Accessibility service.
+            getSharedPreferences("andee_access_consent", MODE_PRIVATE).edit()
+                .putBoolean("consent", false).apply()
+            net.kuafuai.andee.ScreenBodyService.get()?.disableSelf()
+            updatePermissionStatus()
+            AlertDialog.Builder(this)
+                .setTitle("स्क्रीन कंट्रोल बंद")
+                .setMessage("Andee का in-app Accessibility consent वापस ले लिया गया है। Android service active हो तो उसे disable करने का अनुरोध भी किया गया है। Settings में इसकी स्थिति जाँच लें।")
+                .setPositiveButton("Accessibility Settings") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+                .setNegativeButton("ठीक है", null).show()
         }
         button(p, "🔄  Permission status दोबारा जाँचें") {
             updatePermissionStatus()

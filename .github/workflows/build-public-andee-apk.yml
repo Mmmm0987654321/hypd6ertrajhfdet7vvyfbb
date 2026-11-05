@@ -2,6 +2,8 @@ name: Publish Andee Hindi Reviewed APK (unofficial)
 on:
   push:
     branches: [andee-public-download-20261105]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 jobs:
   build-apk:

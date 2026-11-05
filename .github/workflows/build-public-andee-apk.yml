@@ -1,0 +1,81 @@
+name: Publish Andee Hindi Reviewed APK (unofficial)
+on:
+  push:
+    branches: [andee-public-download-20261105]
+  workflow_dispatch:
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 50
+    steps:
+      - name: Checkout isolated public download branch
+        uses: actions/checkout@v4
+        with:
+          ref: andee-public-download-20261105
+          persist-credentials: true
+      - name: Checkout Andee official v0.11.0 sources
+        uses: actions/checkout@v4
+        with:
+          repository: kuafuai/andee
+          ref: v0.11.0
+          path: andee-src
+          persist-credentials: false
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+      - name: Install Android build packages
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - name: Gradle 8.4
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
+      - name: Reduce nonessential SMS, logs, notification permissions
+        run: python3 scripts/build_andee_safe.py andee-src
+      - name: Add Hindi language options and TTS setup
+        run: python3 scripts/hindi_update_andee.py andee-src
+      - name: Add Hindi in-app fallback and Accessibility consent
+        run: python3 scripts/overlay_fallback_andee.py andee-src
+      - name: Enforce consent and banking exclusions at accessibility boundary
+        run: python3 scripts/enable_bank_excluded_accessibility.py andee-src
+      - name: Check consent controls and banking blocks
+        run: |
+          grep -q 'getBoolean("consent", false)' andee-src/app/src/main/java/net/kuafuai/andee/screen/ScreenAccessGate.kt
+          grep -q 'ScreenAccessGate.requireAllowed(service)' andee-src/app/src/main/java/net/kuafuai/andee/screen/ScreenController.kt
+          grep -q 'सहमत हूँ' andee-src/app/src/main/java/net/kuafuai/andee/ui/InAppCompanionActivity.kt
+      - name: Compile Android ARM64 debug APK
+        working-directory: andee-src
+        run: gradle :app:assembleDebug --no-daemon -PdefaultLang=hi -PcodeflyingDomain=myapp.codeflying.app -PcodeflyingSsl=true
+      - name: Verify APK
+        run: |
+          set -euo pipefail
+          APK="$(find andee-src/app/build/outputs/apk/debug -type f -iname '*arm64*apk' | head -n 1)"
+          if [ -z "$APK" ]; then APK="$(find andee-src/app/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"; fi
+          test -n "$APK" && test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" | head -n 16
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml > manifest_dump.txt
+          grep -q 'ScreenBodyService' manifest_dump.txt
+          grep -q 'BIND_ACCESSIBILITY_SERVICE' manifest_dump.txt
+          if grep -q 'NotificationRelayService' manifest_dump.txt; then exit 1; fi
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump permissions "$APK" | tee permissions.txt
+          if grep -Ei 'READ_SMS|RECEIVE_SMS|SEND_SMS|READ_CALL_LOG|BIND_NOTIFICATION_LISTENER_SERVICE' permissions.txt; then exit 1; fi
+          mkdir -p downloads
+          cp "$APK" downloads/Andee_Hindi_Consent_Reviewed_ARM64.apk
+          sha256sum downloads/Andee_Hindi_Consent_Reviewed_ARM64.apk | tee downloads/Andee_Hindi_Consent_Reviewed_ARM64.sha256
+          du -h downloads/Andee_Hindi_Consent_Reviewed_ARM64.apk
+      - name: Publish APK to this public download-only branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/Andee_Hindi_Consent_Reviewed_ARM64.apk downloads/Andee_Hindi_Consent_Reviewed_ARM64.sha256
+          git diff --cached --exit-code && exit 0
+          git commit -m "Publish reviewed unofficial Andee Hindi test APK [skip ci]"
+          git push origin HEAD:refs/heads/andee-public-download-20261105
